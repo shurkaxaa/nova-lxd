@@ -1229,11 +1229,12 @@ class LXDDriver(driver.ComputeDriver):
                 for ent in os.listdir(tmpdir):
                     shutil.copytree(os.path.join(tmpdir, ent),
                                     os.path.join(configdrive_dir, ent))
-                    utils.execute('chmod', '-R', '775', configdrive_dir,
-                                  run_as_root=True)
-                    utils.execute('chown', '-R',
-                                  '%s:%s' % (storage_id, storage_id),
-                                  configdrive_dir, run_as_root=True)
+
+                utils.execute('chmod', '-R', '775', configdrive_dir,
+                              run_as_root=True)
+                utils.execute('chown', '-R',
+                              '%s:%s' % (storage_id, storage_id),
+                              configdrive_dir, run_as_root=True)
             finally:
                 if mounted:
                     utils.execute('umount', tmpdir, run_as_root=True)
