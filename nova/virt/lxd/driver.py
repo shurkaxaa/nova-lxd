@@ -318,20 +318,11 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
                 tarball.addfile(tarinfo, io.BytesIO(metadata_yaml))
                 tarball.close()
 
-                def stream_transfer_supported():
-                    import inspect
-                    return 'from_streams' in inspect.getargspec(
-                        client.images.create.func).args
-
                 with open(manifest_file, 'rb') as manifest:
                     with open(image_file, 'rb') as image:
-                        if stream_transfer_supported():
-                            image = client.images.create(
-                                image, metadata=manifest,
-                                wait=True, from_streams=True)
-                        else:
-                            image = client.images.create(
-                                image.read(), metadata=manifest.read(), wait=True)
+                        image = client.images.create(
+                            image, metadata=manifest,
+                            wait=True)
 
             image.add_alias(image_ref, '')
 
