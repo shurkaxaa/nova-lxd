@@ -611,7 +611,8 @@ class LXDDriver(driver.ComputeDriver):
             self.firewall_driver.unfilter_instance(instance, network_info)
 
         lxd_config = self.client.host_info
-        storage.detach_ephemeral(block_device_info, lxd_config, instance)
+        storage.detach_ephemeral(
+            self.client, block_device_info, lxd_config, instance)
 
         name = pwd.getpwuid(os.getuid()).pw_name
 
@@ -988,7 +989,7 @@ class LXDDriver(driver.ComputeDriver):
         storage_driver = lxd_config['environment']['storage']
         if storage_driver == 'zfs':
             local_disk_info = _get_zpool_info(
-                lxd_config['config']['storage.zfs_pool_name']
+                storage.find_zfs_storage_pool(self.client, lxd_config)
             )
         else:
             local_disk_info = _get_fs_info(CONF.lxd.root_dir)

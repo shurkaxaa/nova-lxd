@@ -22,6 +22,15 @@ from nova.virt import driver
 from nova.virt.lxd import common
 
 
+def find_zfs_storage_pool(client, lxd_config):
+    try:
+        return lxd_config['config']['storage.zfs_pool_name']
+    except KeyError:
+        pools = filter(lambda pool: pool.driver == 'zfs',
+                       client.storage_pools.all())
+        return pools[0].config['zfs.pool_name']
+
+
 def attach_ephemeral(client, block_device_info, lxd_config, instance):
     """Attach ephemeral storage to an instance."""
     ephemeral_storage = driver.block_device_info_get_ephemerals(
@@ -39,7 +48,7 @@ def attach_ephemeral(client, block_device_info, lxd_config, instance):
             storage_dir = os.path.join(
                 instance_attrs.storage_path, ephemeral['virtual_name'])
             if storage_driver == 'zfs':
-                zfs_pool = lxd_config['config']['storage.zfs_pool_name']
+                zfs_pool = find_zfs_storage_pool(client, lxd_config)
 
                 utils.execute(
                     'zfs', 'create',
@@ -92,7 +101,7 @@ def attach_ephemeral(client, block_device_info, lxd_config, instance):
                 storage_dir, run_as_root=True)
 
 
-def detach_ephemeral(block_device_info, lxd_config, instance):
+def detach_ephemeral(client, block_device_info, lxd_config, instance):
     """Detach ephemeral device from the instance."""
     ephemeral_storage = driver.block_device_info_get_ephemerals(
         block_device_info)
@@ -101,7 +110,7 @@ def detach_ephemeral(block_device_info, lxd_config, instance):
 
         for ephemeral in ephemeral_storage:
             if storage_driver == 'zfs':
-                zfs_pool = lxd_config['config']['storage.zfs_pool_name']
+                zfs_pool = find_zfs_storage_pool(client, lxd_config)
 
                 utils.execute(
                     'zfs', 'destroy',
