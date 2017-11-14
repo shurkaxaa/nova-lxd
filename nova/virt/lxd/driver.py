@@ -245,9 +245,9 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
             # In that case attempt to add it again
             # (implicitly via instance launch from affected image) will produce
             # LXD error - "Image with same fingerprint already exists".
-            # Error does not have unique identifier so to handle it we calculate
-            # fingerprint of image as LXD do and check if LXD already have image
-            # with such fingerprint.
+            # Error does not have unique identifier to handle it we calculate
+            # fingerprint of image as LXD do it and check if LXD already have
+            # image with such fingerprint.
             # If any we will add alias to this image and will not re-import it
             def add_alias():
 
@@ -264,9 +264,9 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
                 fingerprint = lxdimage_fingerprint()
                 if client.images.exists(fingerprint):
                     LOG.info(
-                        'Image already exists {fingerprint} but not accessible '
-                        'by alias ({alias}), updating...'.format(
-                            fingerprint=fingerprint, alias=image_ref))
+                        'Image with fingerprint %(fingerprint)s already exists'
+                        'but not accessible by alias %(alias)s, add alias',
+                        {'fingerprint': fingerprint, 'alias': image_ref})
                     lxdimage = client.images.get(fingerprint)
                     lxdimage.add_alias(image_ref, '')
                     return True
@@ -276,8 +276,8 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
             if add_alias():
                 return
 
-            # up2date LXD publish/export operations produce images which already
-            # containt /rootfs and metdata.yaml in exported file.
+            # up2date LXD publish/export operations produce images which
+            # already contains /rootfs and metdata.yaml in exported file.
             # We should not pass metdata explicitly in that case as imported
             # image will be unusable bacause LXD will think that it containts
             # rootfs and will not extract embedded /rootfs properly.
@@ -297,15 +297,16 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
                 return False
 
             if imagefile_has_metadata(image_file):
-                LOG.info('Image {alias} already has metadata, '
-                         'skipping metadata injection...'.format(
-                             alias=image_ref))
+                LOG.info('Image %(alias)s already has metadata, '
+                         'skipping metadata injection...',
+                         {'alias': image_ref})
                 with open(image_file, 'rb') as image:
                     image = client.images.create(image, wait=True)
             else:
                 metadata = {
                     'architecture': image.get(
-                        'hw_architecture', obj_fields.Architecture.from_host()),
+                        'hw_architecture',
+                        obj_fields.Architecture.from_host()),
                     'creation_date': int(os.stat(image_file).st_ctime)}
                 metadata_yaml = json.dumps(
                     metadata, sort_keys=True, indent=4,
@@ -1197,7 +1198,8 @@ class LXDDriver(driver.ComputeDriver):
             "volatile.tap5fd6808a-7b.name": "eth0"
         }
         '''
-        container_id_map = json.loads(container.config['volatile.last_state.idmap'])
+        container_id_map = json.loads(
+            container.config['volatile.last_state.idmap'])
         uid_map = filter(lambda id_map: id_map.get("Isuid"), container_id_map)
         if uid_map:
             storage_id = uid_map[0].get("Hostid", 0)
