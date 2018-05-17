@@ -230,8 +230,8 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
                 raise
 
         try:
-            image_file = tempfile.mkstemp()[1]
-            manifest_file = tempfile.mkstemp()[1]
+            ifd, image_file = tempfile.mkstemp()
+            mfd, manifest_file = tempfile.mkstemp()
 
             image = IMAGE_API.get(context, image_ref)
             if image.get('disk_format') not in ACCEPTABLE_IMAGE_FORMATS:
@@ -330,6 +330,8 @@ def _sync_glance_image_to_lxd(client, context, image_ref):
         finally:
             os.unlink(image_file)
             os.unlink(manifest_file)
+            os.close(ifd)
+            os.close(mfd)
 
 
 def brick_get_connector_properties(multipath=False, enforce_multipath=False):
