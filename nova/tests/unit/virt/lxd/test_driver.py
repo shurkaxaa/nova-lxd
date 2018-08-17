@@ -14,6 +14,8 @@
 #    under the License.
 import collections
 import json
+import base64
+from contextlib import closing
 
 import eventlet
 from oslo_config import cfg
@@ -24,6 +26,7 @@ from nova import utils
 from nova import test
 from nova.compute import manager
 from nova.compute import power_state
+from nova.compute import vm_states
 from nova.network import model as network_model
 from nova.tests.unit import fake_instance
 from pylxd import exceptions as lxdcore_exceptions
@@ -217,6 +220,32 @@ class LXDDriverTest(test.NoDBTestCase):
         instances = lxd_driver.list_instances()
 
         self.assertEqual(['mock-instance-1', 'mock-instance-2'], instances)
+
+    @mock.patch('nova.virt.lxd.driver.IMAGE_API')
+    @mock.patch('nova.virt.lxd.driver.lockutils.lock')
+    def test_spawn_unified_image(self, lock, IMAGE_API=None):
+        def image_get(*args, **kwargs):
+            raise lxdcore_exceptions.LXDAPIException(MockResponse(404))
+        self.client.images.get_by_alias.side_effect = image_get
+        self.client.images.exists.return_value = False
+        image = {'name': mock.Mock(), 'disk_format': 'raw'}
+        IMAGE_API.get.return_value = image
+
+        def download_unified(*args, **kwargs):
+            # unified image with metadata
+            # structure is gzipped tarball, content:
+            # /
+            #  metadata.yaml
+            #  rootfs/
+            unified_tgz = 'H4sIALpegVkAA+3SQQ7CIBCFYY7CCXRAppwHo66sTVpYeHsh0a'\
+                          'Ru1A2Lxv/bDGQmYZLHeM7plHLa3dN4NX1INQyhVRdV1vXFuIML'\
+                          '4lVVopF28cZKp33elCWn2VpTjuWWy4e5L/2NmqcpX5Z91zdawD'\
+                          'HqT/kHrf/E+Xo0Vrtu9fTn+QMAAAAAAAAAAAAAAADYrgfk/3zn'\
+                          'ACgAAA=='
+            with closing(open(kwargs['dest_path'], 'wb+')) as img:
+                img.write(base64.b64decode(unified_tgz))
+        IMAGE_API.download = download_unified
+        self.test_spawn()
 
     @mock.patch('nova.virt.configdrive.required_by')
     def test_spawn(self, configdrive, neutron_failure=None):
@@ -512,6 +541,40 @@ class LXDDriverTest(test.NoDBTestCase):
         lxd_driver.client.containers.get.assert_called_once_with(instance.name)
         mock_container.stop.assert_called_once_with(wait=True)
         mock_container.delete.assert_called_once_with(wait=True)
+
+    def test_destroy_when_in_rescue(self):
+        mock_stopped_container = mock.Mock()
+        mock_stopped_container.status = 'Stopped'
+        mock_rescued_container = mock.Mock()
+        mock_rescued_container.status = 'Running'
+        ctx = context.get_admin_context()
+        instance = fake_instance.fake_instance_obj(
+            ctx, name='test', memory_mb=0)
+        network_info = [_VIF]
+
+        lxd_driver = driver.LXDDriver(None)
+        lxd_driver.init_host(None)
+        lxd_driver.cleanup = mock.Mock()
+
+        # set the vm_state on the fake instance to RESCUED
+        instance.vm_state = vm_states.RESCUED
+
+        # set up the containers.get to return the stopped container and then
+        # the rescued container
+        self.client.containers.get.side_effect = [
+            mock_stopped_container, mock_rescued_container]
+
+        lxd_driver.destroy(ctx, instance, network_info)
+
+        lxd_driver.cleanup.assert_called_once_with(
+            ctx, instance, network_info, None)
+        lxd_driver.client.containers.get.assert_has_calls([
+            mock.call(instance.name),
+            mock.call('{}-rescue'.format(instance.name))])
+        mock_stopped_container.stop.assert_not_called()
+        mock_stopped_container.delete.assert_called_once_with(wait=True)
+        mock_rescued_container.stop.assert_called_once_with(wait=True)
+        mock_rescued_container.delete.assert_called_once_with(wait=True)
 
     def test_destroy_without_instance(self):
         def side_effect(*args, **kwargs):
@@ -921,6 +984,23 @@ class LXDDriverTest(test.NoDBTestCase):
 
         self.client.containers.get.assert_called_once_with(instance.name)
         container.unfreeze.assert_called_once_with(wait=True)
+
+    def test_resume_state_on_host_boot(self):
+        container = mock.Mock()
+        state = mock.Mock()
+        state.memory = dict({'usage': 0, 'usage_peak': 0})
+        state.status_code = 102
+        container.state.return_value = state
+        self.client.containers.get.return_value = container
+        ctx = context.get_admin_context()
+        instance = fake_instance.fake_instance_obj(
+            ctx, name='test', memory_mb=0)
+
+        lxd_driver = driver.LXDDriver(None)
+        lxd_driver.init_host(None)
+
+        lxd_driver.resume_state_on_host_boot(ctx, instance, None, None)
+        container.start.assert_called_once_with(wait=True)
 
     def test_rescue(self):
         profile = mock.Mock()

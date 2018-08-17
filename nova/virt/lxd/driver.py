@@ -15,6 +15,7 @@
 
 from __future__ import absolute_import
 
+import errno
 import io
 import json
 import os
@@ -96,6 +97,30 @@ NOVA_CONF = nova.conf.CONF
 ACCEPTABLE_IMAGE_FORMATS = {'raw', 'root-tar', 'squashfs'}
 BASE_DIR = os.path.join(
     CONF.instances_path, CONF.image_cache_subdirectory_name)
+
+
+def _last_bytes(file_like_object, num):
+    """Return num bytes from the end of the file, and remaning byte count.
+
+    :param file_like_object: The file to read
+    :param num: The number of bytes to return
+
+    :returns: (data, remaining)
+    """
+
+    try:
+        file_like_object.seek(-num, os.SEEK_END)
+    except IOError as e:
+        # seek() fails with EINVAL when trying to go before the start of
+        # the file. It means that num is larger than the file size, so
+        # just go to the start.
+        if e.errno == errno.EINVAL:
+            file_like_object.seek(0, os.SEEK_SET)
+        else:
+            raise
+
+    remaining = file_like_object.tell()
+    return (file_like_object.read(), remaining)
 
 
 def _neutron_failed_callback(event_name, instance):
@@ -591,6 +616,12 @@ class LXDDriver(driver.ComputeDriver):
             if container.status != 'Stopped':
                 container.stop(wait=True)
             container.delete(wait=True)
+            if (instance.vm_state == vm_states.RESCUED):
+                rescued_container = self.client.containers.get(
+                    '%s-rescue' % instance.name)
+                if rescued_container.status != 'Stopped':
+                    rescued_container.stop(wait=True)
+                rescued_container.delete(wait=True)
         except lxd_exceptions.LXDAPIException as e:
             if e.response.status_code == 404:
                 LOG.warning('Failed to delete instance. '
@@ -666,7 +697,7 @@ class LXDDriver(driver.ComputeDriver):
         utils.execute(
             'chmod', '755', instance_attrs.container_path, run_as_root=True)
         with open(console_path, 'rb') as f:
-            log_data, _ = utils.last_bytes(f, MAX_CONSOLE_BYTES)
+            log_data, _ = _last_bytes(f, MAX_CONSOLE_BYTES)
             return log_data
 
     def get_host_ip_addr(self):
@@ -868,13 +899,15 @@ class LXDDriver(driver.ComputeDriver):
                rescue_password):
         """Rescue a LXD container.
 
-        Rescuing a instance requires a number of steps. First,
-        the failed container is stopped. Next, '-rescue', is
-        appended to the failed container's name, this is done
-        so the container can be unrescued. The container's
-        profile is updated with the rootfs of the
-        failed container. Finally, a new container
-        is created and started.
+        From the perspective of nova, rescuing a instance requires a number of
+        steps. First, the failed container is stopped, and then this method is
+        called.
+
+        So the original container is already stopped, and thus, next,
+        '-rescue', is appended to the failed container's name, this is done so
+        the container can be unrescued. The container's profile is updated with
+        the rootfs of the failed container. Finally, a new container is created
+        and started.
 
         See 'nova.virt.driver.ComputeDriver.rescue` for more
         information.
