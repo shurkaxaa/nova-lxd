@@ -548,10 +548,14 @@ class LXDDriver(driver.ComputeDriver):
                 self.cleanup(
                     context, instance, network_info, block_device_info)
 
+        additional_profiles = [
+            x.strip() for x in instance.flavor.extra_specs.get(
+                'lxd:additional_profiles', '').split(',')]
+
         # Create the container
         container_config = {
             'name': instance.name,
-            'profiles': [profile.name],
+            'profiles': [profile.name] + additional_profiles,
             'source': {
                 'type': 'image',
                 'alias': instance.image_ref,
