@@ -548,9 +548,13 @@ class LXDDriver(driver.ComputeDriver):
                 self.cleanup(
                     context, instance, network_info, block_device_info)
 
-        additional_profiles = [
-            x.strip() for x in instance.flavor.extra_specs.get(
-                'lxd:additional_profiles', '').split(',')]
+        additional_profiles = []
+        try:
+            additional_profiles = [
+                x.strip() for x in instance.flavor.extra_specs[
+                    'lxd:additional_profiles'].split(',')]
+        except KeyError:
+            pass
 
         # Create the container
         container_config = {
